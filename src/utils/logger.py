@@ -1,7 +1,10 @@
 import logging
 import os
+from src.utils import utils
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
+
+
 
 def setup_logger(name: str = __name__) -> logging.Logger:
     """ロガーの設定を行う
@@ -16,8 +19,11 @@ def setup_logger(name: str = __name__) -> logging.Logger:
     log_dir = "logs"
     os.makedirs(log_dir, exist_ok=True)
 
+    # 日時の取得
+    date = utils.get_datetime_str()
+    
     # ログファイル名を現在の日付で生成
-    log_file = os.path.join(log_dir, f"{datetime.now().strftime('%Y%m%d')}.log")
+    log_file = os.path.join(log_dir, f"{date}.log")
 
     # ロガーの作成
     logger = logging.getLogger(name)

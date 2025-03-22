@@ -4,3 +4,4 @@
 *.xlsx
 *.pptx
 __pycache__/
+logs/
