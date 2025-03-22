@@ -2,11 +2,25 @@ from pptx import Presentation
 from google import genai
 from google.genai import types
 from src.utils import logger
+import streamlit as st
+import os
+from dotenv import load_dotenv
+
+# 環境変数の読み込み
+load_dotenv()
+MODEL_NAME = os.getenv("GEMINI_API_NAME")
 
 class Checker:
     def __init__(self, api_key: str):
         self.client = genai.Client(api_key=api_key)
         self.logger = logger.setup_logger()
+        # assets ディレクトリのパス
+        self.assets_dir = os.path.join(os.path.dirname(__file__), "assets")
+        # tempfileディレクトリのパス
+        self.temp_dir = os.path.join(self.assets_dir,"temp")
+        self.slides_text = ""
+        self.prompt = ""
+        self.temp_path = ""
 
     def import_pptx(file_path):
         """
@@ -27,19 +41,17 @@ class Checker:
             return None
 
 
-    def extract_pptx(self, temp_path: str):
+    def extract_pptx(self):
         """
         PowerPointファイル（.pptx）からテキスト、フォント、フォントサイズ、フォントカラー、テキストボックスの位置を抽出する関数
         
-        Args:
-            temp_path: 取り込むPowerPointファイルのパス
             
         Returns:
             list: 各スライドの情報を含む辞書のリスト
         """
         # PowerPointファイルの取り込み
         try:
-            presentation = Presentation(temp_path)
+            presentation = Presentation(self.temp_path)
         except Exception as e:
             self.logger.error(f"PowerPointファイルの取り込み中にエラーが発生: {str(e)}", exc_info=True)
             raise
@@ -47,74 +59,28 @@ class Checker:
         slides_data = []
         
         for slide_index, slide in enumerate(presentation.slides):
-            slides_data.append(f"スライド {slide_index+1}")
-            for shape in slide.shapes:
-                # テキストを含む形状のみを処理
-                if not shape.has_text_frame:
-                    continue
-                    
-                shape_data = {
-                    'runs': [],
-                    'position': {
-                        'left': shape.left,
-                        'top': shape.top,
-                        'width': shape.width,
-                        'height': shape.height
-                    }
-                }
+            texts = []
+            for p in slide.placeholders:
+                texts.append(p.text[:-1]) # 最後の要素はページ番号なので除外
+            slides_data.append(f"スライド {slide_index+1}:タイトル:"+",".join(texts))
                 
-                for paragraph in shape.text_frame.paragraphs:
-                    
-                    paragraph_info = []
-                    
-                    for run in paragraph.runs:
-                        font = run.font
-                        color = 'なし'
-                        
-                        # フォントカラーの取得
-                        if font.color.type is not None:
-                            if hasattr(font.color, 'rgb') and font.color.rgb is not None:
-                                rgb = font.color.rgb
-                                color = f'RGB({rgb[0]}, {rgb[1]}, {rgb[2]})'
-                        
-                        run_info = {
-                            'text': run.text,
-                            'font_name': font.name,
-                            'font_size': font.size.pt if font.size is not None else 'デフォルト',
-                            'font_color': color,
-                            'bold': font.bold,
-                            'italic': font.italic,
-                            'underline': font.underline
-                        }
-                        
-                        paragraph_info.append(str(run_info.items()))
-                    
-                    shape_data['runs'].append(",".join(paragraph_info))
-                
-            slides_data.append(str(shape_data.items()))
-            
-        
         return slides_data
 
-
-
-    def check_pptx(self, model: str, slides_text: str, prompt: str) -> str:
+    def check_pptx(self) -> str:
         """PowerPointの内容をLLMでチェックする
 
         Args:
             model : 使用するモデル
-            slides_text : PowerPointの内容
-            prompt : チェックのためのプロンプト
 
         Returns:
             str: LLMからの分析結果
         """
         # プロンプトの作成
         full_prompt = f"""
-                        以下のPowerPointの内容を分析し、{prompt}の観点から評価してください。
+                        以下のPowerPointの内容を分析し、{self.prompt}の観点から評価してください。
 
                         PowerPointの内容:
-                        {slides_text}
+                        {self.slides_text}
 
                         分析結果について以下の内容を日本語で出力してください。
                         1. 分析結果の出力
@@ -125,7 +91,7 @@ class Checker:
         try:
             # LLMによる分析の実行
             response = self.client.models.generate_content(
-                model=model,
+                model=MODEL_NAME,
                 contents=full_prompt
                 )
             result = response.text
@@ -136,3 +102,63 @@ class Checker:
         except Exception as e:
             self.logger.error(f"LLMによる分析中にエラーが発生: {str(e)}", exc_info=True)
             raise
+
+    def confilm_pptx(self, uploaded_file, prompt):
+        """
+        PowerPointファイルの内容を確認する関数
+        """
+        self.prompt = prompt
+        if not uploaded_file:
+            st.warning("PowerPointファイルをアップロードしてください。")
+            return
+        
+        if not prompt:
+            st.warning("分析の観点を入力してください。")
+            return
+
+        # 一時ファイルとして保存
+        if not uploaded_file:
+            st.error("ファイルがアップロードされていません")
+        filename = f"{uploaded_file.name}"
+        self.temp_path = os.path.join(self.temp_dir, filename)
+        
+        # 一時ディレクトリの作成
+        os.makedirs(self.temp_dir, exist_ok=True)
+
+        try:
+            # ファイルの保存
+            with open(self.temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            
+            self.logger.info(f"ファイル '{uploaded_file.name}' がアップロードされました")
+        except Exception as e:
+            st.error(f"エラーが発生しました: {str(e)}")
+        
+        # PowerPointの内容を抽出
+        content = list(self.extract_pptx()) 
+        self.slides_text = ", ".join(content)
+        # contentの中身を表示
+        st.write(content)
+        self.logger.info("内容の確認が完了しました")
+
+    def llm_pptx(self):
+        """
+        PowerPointファイルの内容を分析する関数
+        """
+        # プログレスバーの表示
+        with st.spinner("PowerPointの内容を分析中..."):
+            try:
+                # LLMによる分析
+                analysis_result = self.check_pptx()
+                
+                # 結果の表示
+                st.subheader("分析結果")
+                st.write(analysis_result)
+                self.logger.info("分析結果の表示が完了しました")
+            except Exception as e:
+                st.error(f"エラーが発生しました: {str(e)}")
+                self.logger.error(f"予期せぬエラーが発生: {str(e)}", exc_info=True)
+            finally:
+                # 一時ファイルの削除
+                os.remove(self.temp_path)
+                self.logger.info("一時ファイルを削除しました")

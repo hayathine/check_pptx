@@ -12,14 +12,8 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL_NAME = os.getenv("GEMINI_API_NAME")
 debug_mode = os.getenv("DEBUG")
-
-# assets ディレクトリのパス
-ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
-
 # ロガーの設定
 logger = logger.setup_logger()
-# tempfileディレクトリのパス
-temp_dir = os.path.join(ASSETS_DIR,"temp")
 def main():
     # Streamlitアプリのタイトル設定
     st.title("パワーポイントファイル分析ツール")
@@ -27,6 +21,7 @@ def main():
     # ファイルアップローダーの表示
     uploaded_file = st.file_uploader("パワーポイントファイルをアップロードしてください", type=["pptx"])
     
+    # TODO:くくり出す
     # テンプレートの定義
     templates = {
         "構成の評価": "スライド全体の流れが論理的に整理されているか？",
@@ -35,11 +30,11 @@ def main():
         "初出用語のチェック": "専門用語が適切に説明されているか？",
         "スライドごとのポイント": "各スライドの要点が明確か？"
     }
-
     formatted_template = "\n\n".join([f"{key}: {value}" for key, value in templates.items()])
+    
     # 各テンプレートを表示（コードブロックにすることでコピーしやすく）
-    with st.expander(f"📌 テンプレート"):
-        st.code(formatted_template, language="plaintext")
+    st.write("分析の観点のテンプレート")
+    st.code(formatted_template, language="plaintext")
 
     # テキストエリア
     prompt = st.text_area(
@@ -51,68 +46,13 @@ def main():
     # チェックツールの初期化
     checker = Checker(GEMINI_API_KEY)
 
-    if st.button("内容確認"):
-        if not uploaded_file:
-            st.warning("PowerPointファイルをアップロードしてください。")
-            return
-        
-        if not prompt:
-            st.warning("分析の観点を入力してください。")
-            return
+    # ボタンの初期状態の設定
+    st.session_state.confilm = False
 
-        try:
-            # 一時ファイルとして保存
-            filename = f"{uploaded_file.name}"
-            temp_path = os.path.join(temp_dir, filename)
-            
-            # 一時ディレクトリの作成
-            os.makedirs(temp_dir, exist_ok=True)
-            
-            # ファイルの保存
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            
-            logger.info(f"ファイル '{uploaded_file.name}' がアップロードされました")
-            # PowerPointの内容を抽出
-            content = list(checker.extract_pptx(temp_path))
-            slides_text = ", ".join(content)
-            # contentの中身を表示
-            st.write(content)
-            st.write(slides_text)
-        except Exception as e:
-            st.error(f"エラーが発生しました: {str(e)}")
-            logger.error(f"予期せぬエラーが発生: {str(e)}", exc_info=True)
+    st.button("内容確認",on_click=checker.confilm_pptx(uploaded_file, prompt))
 
-
-        # 分析開始
-        if st.button("分析開始"):
-            if not slides_text:
-                st.warning("PowerPointファイルをアップロードしてください。")
-                return
-
-            # プログレスバーの表示
-            with st.spinner("PowerPointの内容を分析中..."):
-                try:
-                    # LLMによる分析
-                    analysis_result = checker.check_pptx(
-                        model=MODEL_NAME,
-                        slides_text=slides_text, 
-                        prompt=prompt)
-                    
-                    # 結果の表示
-                    st.subheader("分析結果")
-                    st.write(analysis_result)
-                
-                    # 一時ファイルの削除
-                    os.remove(temp_path)
-                    logger.info("一時ファイルを削除しました")
-                except Exception as e:
-                    st.error(f"エラーが発生しました: {str(e)}")
-                    logger.error(f"予期せぬエラーが発生: {str(e)}", exc_info=True)
-                finally:
-                    # 一時ファイルの削除
-                    os.remove(temp_path)
-                    logger.info("一時ファイルを削除しました")
+    # 分析開始
+    st.button("分析開始", on_click=checker.llm_pptx)
 
 if __name__ == "__main__":
     main()
