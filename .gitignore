@@ -1,4 +1,6 @@
 .venv
-env
+.cursor
+.env
 *.xlsx
 *.pptx
+__pycache__/
