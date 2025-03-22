@@ -36,15 +36,6 @@ def main():
         "スライドごとのポイント": "各スライドの要点が明確か？"
     }
 
-    # # セッションステートを使ってプロンプトを保持
-    # if "prompt_text" not in st.session_state:
-    #     st.session_state["prompt_text"] = ""
-
-    # # ボタンを配置
-    # for name, text in templates.items():
-    #     if st.button(name):
-    #         st.session_state["prompt_text"] = text
-
     formatted_template = "\n\n".join([f"{key}: {value}" for key, value in templates.items()])
     # 各テンプレートを表示（コードブロックにすることでコピーしやすく）
     with st.expander(f"📌 テンプレート"):
@@ -60,7 +51,7 @@ def main():
     # チェックツールの初期化
     checker = Checker(GEMINI_API_KEY)
 
-    if st.button("分析開始"):
+    if st.button("内容確認"):
         if not uploaded_file:
             st.warning("PowerPointファイルをアップロードしてください。")
             return
@@ -82,33 +73,46 @@ def main():
                 f.write(uploaded_file.getbuffer())
             
             logger.info(f"ファイル '{uploaded_file.name}' がアップロードされました")
-            print(temp_path)
             # PowerPointの内容を抽出
-            content = checker.extract_pptx(temp_path)
-            
-            # プログレスバーの表示
-            with st.spinner("PowerPointの内容を分析中..."):
-                # LLMによる分析
-                analysis_result = checker.check_pptx(
-                    model=MODEL_NAME,
-                    content=content, 
-                    prompt=prompt)
-                
-                # 結果の表示
-                st.subheader("分析結果")
-                st.write(analysis_result)
-            
-            # 一時ファイルの削除
-            os.remove(temp_path)
-            logger.info("一時ファイルを削除しました")
-            
+            content = list(checker.extract_pptx(temp_path))
+            slides_text = ", ".join(content)
+            # contentの中身を表示
+            st.write(content)
+            st.write(slides_text)
         except Exception as e:
             st.error(f"エラーが発生しました: {str(e)}")
             logger.error(f"予期せぬエラーが発生: {str(e)}", exc_info=True)
-        finally:
-            # 一時ファイルの削除（エラー時も確実に削除）
-            if 'temp_path' in locals() and os.path.exists(temp_path):
-                os.remove(temp_path)
+
+
+        # 分析開始
+        if st.button("分析開始"):
+            if not slides_text:
+                st.warning("PowerPointファイルをアップロードしてください。")
+                return
+
+            # プログレスバーの表示
+            with st.spinner("PowerPointの内容を分析中..."):
+                try:
+                    # LLMによる分析
+                    analysis_result = checker.check_pptx(
+                        model=MODEL_NAME,
+                        slides_text=slides_text, 
+                        prompt=prompt)
+                    
+                    # 結果の表示
+                    st.subheader("分析結果")
+                    st.write(analysis_result)
+                
+                    # 一時ファイルの削除
+                    os.remove(temp_path)
+                    logger.info("一時ファイルを削除しました")
+                except Exception as e:
+                    st.error(f"エラーが発生しました: {str(e)}")
+                    logger.error(f"予期せぬエラーが発生: {str(e)}", exc_info=True)
+                finally:
+                    # 一時ファイルの削除
+                    os.remove(temp_path)
+                    logger.info("一時ファイルを削除しました")
 
 if __name__ == "__main__":
     main()

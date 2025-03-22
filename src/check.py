@@ -47,19 +47,14 @@ class Checker:
         slides_data = []
         
         for slide_index, slide in enumerate(presentation.slides):
-            slide_data = {
-                'slide_number': slide_index + 1,
-                'shapes': []
-            }
-            
+            slides_data.append(f"スライド {slide_index+1}")
             for shape in slide.shapes:
                 # テキストを含む形状のみを処理
                 if not shape.has_text_frame:
                     continue
                     
                 shape_data = {
-                    'text': '',
-                    'paragraphs': [],
+                    'runs': [],
                     'position': {
                         'left': shape.left,
                         'top': shape.top,
@@ -69,13 +64,8 @@ class Checker:
                 }
                 
                 for paragraph in shape.text_frame.paragraphs:
-                    paragraph_text = paragraph.text
-                    shape_data['text'] += paragraph_text + '\n'
                     
-                    paragraph_info = {
-                        'text': paragraph_text,
-                        'runs': []
-                    }
+                    paragraph_info = []
                     
                     for run in paragraph.runs:
                         font = run.font
@@ -97,84 +87,42 @@ class Checker:
                             'underline': font.underline
                         }
                         
-                        paragraph_info['runs'].append(run_info)
+                        paragraph_info.append(str(run_info.items()))
                     
-                    shape_data['paragraphs'].append(paragraph_info)
+                    shape_data['runs'].append(",".join(paragraph_info))
                 
-                slide_data['shapes'].append(shape_data)
+            slides_data.append(str(shape_data.items()))
             
-            slides_data.append(slide_data)
         
         return slides_data
 
-    def print_pptx(self, slides_data: list):
-        """
-        抽出したPowerPointの内容を表示する関数
-        
-        Args:
-            slides_data : extract_pptx関数で抽出したデータ
-        """
-        
-        if not slides_data:
-            print("データがありません。")
-            return
-        
-        for slide in slides_data:
-            print(f"\n===== スライド {slide['slide_number']} =====")
-            
-            for shape_index, shape in enumerate(slide['shapes']):
-                print(f"\n-- テキストボックス {shape_index + 1} --")
-                print(f"位置: 左={shape['position']['left']}, 上={shape['position']['top']}, "
-                        f"幅={shape['position']['width']}, 高さ={shape['position']['height']}")
-                
-                for para_index, paragraph in enumerate(shape['paragraphs']):
-                    print(f"\n段落 {para_index + 1}:")
-                    
-                    for run_index, run in enumerate(paragraph['runs']):
-                        print(f"  テキスト: {run['text']}")
-                        print(f"  フォント: {run['font_name']}, サイズ: {run['font_size']}, 色: {run['font_color']}")
-                        
-                        style = []
-                        if run['bold']:
-                            style.append('太字')
-                        if run['italic']:
-                            style.append('斜体')
-                        if run['underline']:
-                            style.append('下線')
-                        
-                        if style:
-                            print(f"  スタイル: {', '.join(style)}")
-                        print("")
 
 
-    def check_pptx(self, model: str, content: list, prompt: str) -> str:
+    def check_pptx(self, model: str, slides_text: str, prompt: str) -> str:
         """PowerPointの内容をLLMでチェックする
 
         Args:
             model : 使用するモデル
-            content : PowerPointの内容（スライドごとのテキストのリスト）
+            slides_text : PowerPointの内容
             prompt : チェックのためのプロンプト
 
         Returns:
             str: LLMからの分析結果
         """
+        # プロンプトの作成
+        full_prompt = f"""
+                        以下のPowerPointの内容を分析し、{prompt}の観点から評価してください。
+
+                        PowerPointの内容:
+                        {slides_text}
+
+                        分析結果について以下の内容を日本語で出力してください。
+                        1. 分析結果の出力
+                        2. 分析結果を元にslides_textを修正してpython-pptxライブラリのpresenttation.slidesの形式に合わせて出力
+                        """
+        
+        self.logger.info(full_prompt)
         try:
-            # スライドの内容を文字列に変換
-            slides_text = "\n\n".join([
-                f"スライド {i+1}:\n" + "\n".join(slide)
-                for i, slide in enumerate(content)
-            ])
-            
-            # プロンプトの作成
-            full_prompt = f"""
-    以下のPowerPointの内容を分析し、{prompt}の観点から評価してください。
-
-    PowerPointの内容:
-    {slides_text}
-
-    分析結果を日本語で出力してください。
-    """
-            self.logger.info(full_prompt)
             # LLMによる分析の実行
             response = self.client.models.generate_content(
                 model=model,
